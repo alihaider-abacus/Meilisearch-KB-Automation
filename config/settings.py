@@ -52,6 +52,7 @@ class Settings(BaseSettings):
 
     kb_schema: str = "public"
     kb_table_suffix: str = "_kb"
+    kb_excluded_tables: str = ""
 
     # ------------------------------------------------------------------
     # Embeddings

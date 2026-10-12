@@ -53,8 +53,10 @@ class MeilisearchClient:
             )
 
         result = self.client.wait_for_task(
-            task_uid
+            task_uid,
+            timeout_in_ms=120000,
         )
+        
 
         status = getattr(
             result,

@@ -59,6 +59,7 @@ class KnowledgeBaseSync:
                 self._index_batch(
                     batch
                 )
+                print(f"Indexed {counts[source_table.name]} documents from {source_table.name}...")
                 batch.clear()
 
         if batch:
