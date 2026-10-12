@@ -1,0 +1,70 @@
+services:
+
+  postgres:
+    image: government-kb-postgres:16
+    container_name: gob-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: gob_assistant
+      POSTGRES_USER: gob_user
+      POSTGRES_PASSWORD: gob_password
+
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=10
+      - -c
+      - max_wal_senders=10
+      - -c
+      - output_plugin_libraries=pgoutput,wal2json,test_decoding
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - gob_postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U gob_user -d "API-Data"
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  meilisearch:
+    image: getmeili/meilisearch:latest
+    container_name: government-kb-meilisearch
+    restart: unless-stopped
+
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY}
+
+    ports:
+      - "7700:7700"
+
+    volumes:
+      - meilisearch_data:/meili_data
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget -qO- http://127.0.0.1:7700/health || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  gob_postgres_data:
+    external: true
+    name: gob-openapi-mcp_gob_postgres_data
+
+  meilisearch_data:
+    external: true
+    name: docker_meilisearch_data

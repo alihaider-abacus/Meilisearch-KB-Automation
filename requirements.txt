@@ -1,0 +1,31 @@
+# Configuration
+
+python-dotenv
+pydantic
+pydantic-settings
+
+# Database
+
+psycopg[binary]
+psycopg2-binary
+SQLAlchemy
+
+# Data processing and validation
+
+pandas
+numpy
+beautifulsoup4
+
+# Search
+
+meilisearch
+
+# Gemini
+
+google-genai
+
+# Testing
+
+pytest
+pytest-asyncio
+httpx
