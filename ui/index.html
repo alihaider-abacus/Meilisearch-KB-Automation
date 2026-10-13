@@ -517,12 +517,10 @@
 </div>
 
 <script>
-    // Unified Vercel Serverless Backend API endpoint
+    // Unified Vercel Serverless Backend API
     const BACKEND_API = "/api/search";
 
     const PAGE_SIZE = 20;
-
-    const MAX_SUGGESTIONS = 5;
 
     const searchInput =
         document.getElementById(
@@ -586,25 +584,13 @@
     }
 
     function showSuggestions(hits) {
-        const suggestions =
-            hits
-                .filter(
-                    hit =>
-                        hit &&
-                        hit.title
-                )
-                .slice(
-                    0,
-                    MAX_SUGGESTIONS
-                );
-
-        if (!suggestions.length) {
+        if (!hits || !hits.length) {
             hideSuggestions();
             return;
         }
 
         suggestionsBox.innerHTML =
-            suggestions
+            hits
                 .map(
                     (hit, index) => `
                         <button
@@ -639,9 +625,7 @@
                         "click",
                         () => {
                             const selected =
-                                suggestions[
-                                    index
-                                ];
+                                hits[index];
 
                             searchInput.value =
                                 selected.title;
@@ -649,7 +633,8 @@
                             hideSuggestions();
 
                             executeSearch(
-                                selected.title
+                                selected.title,
+                                0
                             );
                         }
                     );
@@ -668,6 +653,7 @@
         suggestionsBox.innerHTML = "";
     }
 
+    // 1. ROUTING: Fast Suggestions via mode=suggest
     async function fetchSuggestions(query) {
         const cleaned =
             query.trim();
@@ -770,11 +756,12 @@
                 ? data.hits
                 : [];
 
+        // Exact match count from the backend
         currentTotal =
             Number(
-                (data.totalHits !== undefined && data.totalHits !== null)
+                data.totalHits !== undefined
                     ? data.totalHits
-                    : (data.estimatedTotalHits || results.length)
+                    : results.length
             );
 
         if (!results.length || currentTotal === 0) {
@@ -788,7 +775,7 @@
             <div class="results-header">
 
                 <div class="results-count">
-                    ${currentTotal}
+                    ${currentTotal.toLocaleString()}
                     record${currentTotal === 1 ? "" : "s"}
                     found
                 </div>
@@ -873,6 +860,7 @@
         updatePagination();
     }
 
+    // 2. ROUTING: True Multi-Page Pagination calculation
     function updatePagination() {
         const totalPages =
             Math.max(
@@ -914,6 +902,7 @@
         }
     }
 
+    // 3. ROUTING: Full Search with offset & limit passing
     async function executeSearch(
         query,
         offset = 0
@@ -923,11 +912,7 @@
 
         if (!cleaned) {
             resultsArea.innerHTML = "";
-
-            pagination.classList.remove(
-                "visible"
-            );
-
+            pagination.classList.remove("visible");
             return;
         }
 
@@ -938,11 +923,9 @@
         }
 
         currentQuery = cleaned;
-
         currentOffset = offset;
 
         hideSuggestions();
-
         renderLoading();
 
         if (searchController) {
@@ -953,9 +936,10 @@
             new AbortController();
 
         try {
+            // Passes offset and limit to the backend for accurate pagination
             const response =
                 await fetch(
-                    `${BACKEND_API}?q=${encodeURIComponent(cleaned)}&limit=${PAGE_SIZE}`,
+                    `${BACKEND_API}?q=${encodeURIComponent(cleaned)}&limit=${PAGE_SIZE}&offset=${offset}`,
                     {
                         signal:
                             searchController
@@ -965,7 +949,7 @@
 
             if (!response.ok) {
                 throw new Error(
-                    "Backend search API failed."
+                    "Search request failed."
                 );
             }
 
@@ -981,8 +965,14 @@
 
             renderResults(data);
 
-        } catch (error) {
+            // Smoothly scroll back to top of results on page change
+            if (offset > 0) {
+                resultsArea.scrollIntoView({
+                    behavior: "smooth"
+                });
+            }
 
+        } catch (error) {
             if (
                 error.name ===
                 "AbortError"
@@ -992,29 +982,17 @@
 
             resultsArea.innerHTML = `
                 <div class="empty-state">
-
-                    <div class="empty-icon">
-                        ⚠️
-                    </div>
-
-                    <div class="empty-title">
-                        Search unavailable
-                    </div>
-
-                    <div class="empty-text">
-                        Knowledge base service could not
-                        process the search request.
-                    </div>
-
+                    <div class="empty-icon">⚠️</div>
+                    <div class="empty-title">Search unavailable</div>
+                    <div class="empty-text">Could not retrieve search results.</div>
                 </div>
             `;
 
-            pagination.classList.remove(
-                "visible"
-            );
+            pagination.classList.remove("visible");
         }
     }
 
+    // Fast 80ms typing debounce for instantaneous suggestions
     searchInput.addEventListener(
         "input",
         event => {
@@ -1041,49 +1019,33 @@
         "submit",
         event => {
             event.preventDefault();
-
             executeSearch(
-                searchInput.value
+                searchInput.value,
+                0
             );
         }
     );
 
+    // Pagination: Previous Page
     previousButton.addEventListener(
         "click",
         () => {
-            if (
-                currentOffset ===
-                0
-            ) {
-                return;
-            }
-
+            if (currentOffset === 0) return;
             executeSearch(
                 currentQuery,
-                Math.max(
-                    0,
-                    currentOffset -
-                    PAGE_SIZE
-                )
+                Math.max(0, currentOffset - PAGE_SIZE)
             );
         }
     );
 
+    // Pagination: Next Page
     nextButton.addEventListener(
         "click",
         () => {
-            if (
-                currentOffset +
-                PAGE_SIZE >=
-                currentTotal
-            ) {
-                return;
-            }
-
+            if (currentOffset + PAGE_SIZE >= currentTotal) return;
             executeSearch(
                 currentQuery,
-                currentOffset +
-                PAGE_SIZE
+                currentOffset + PAGE_SIZE
             );
         }
     );
@@ -1091,11 +1053,7 @@
     document.addEventListener(
         "click",
         event => {
-            if (
-                !event.target.closest(
-                    ".search-panel"
-                )
-            ) {
+            if (!event.target.closest(".search-panel")) {
                 hideSuggestions();
             }
         }
