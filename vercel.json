@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/search.js": {
+      "includeFiles": "data/records.json"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",
