@@ -517,25 +517,12 @@
 </div>
 
 <script>
-    // const MEILI_HOST = "http://localhost:7700";
-
-    // const MEILI_INDEX = "government_content";
-
-    // const MEILI_SEARCH_KEY =
-    //     "10db0a805907e4d6fb9fc4fa4ac0b71f372739b6f01ef7ac510a31cbce742182";
-
-    const MEILI_HOST = "https://ms-84bf446ddb50-55227.sgp.meilisearch.io";
-    const MEILI_INDEX = "government_content";
-    const MEILI_SEARCH_KEY = "1be8dec36cb1c22dcab321a9e9e69e8206c72b46e2b05bddd282f8496ac85a7b";
+    // Unified Vercel Serverless Backend API endpoint
+    const BACKEND_API = "/api/search";
 
     const PAGE_SIZE = 20;
 
     const MAX_SUGGESTIONS = 5;
-
-    const SEMANTIC_RATIO = 0.7;
-
-
-    const RANKING_SCORE_THRESHOLD = 0.84;
 
     const searchInput =
         document.getElementById(
@@ -616,7 +603,6 @@
             return;
         }
 
-        // Render matching suggestion items with proper styling classes
         suggestionsBox.innerHTML =
             suggestions
                 .map(
@@ -686,7 +672,6 @@
         const cleaned =
             query.trim();
 
-        // Must have at least 1 alphanumeric character to search suggestions
         if (!cleaned || !/[a-zA-Z0-9]/.test(cleaned)) {
             hideSuggestions();
             return;
@@ -702,36 +687,8 @@
         try {
             const response =
                 await fetch(
-                    `${MEILI_HOST}/indexes/${MEILI_INDEX}/search`,
+                    `${BACKEND_API}?q=${encodeURIComponent(cleaned)}&mode=suggest`,
                     {
-                        method: "POST",
-
-                        headers: {
-                            "Content-Type":
-                                "application/json",
-
-                            "Authorization":
-                                `Bearer ${MEILI_SEARCH_KEY}`
-                        },
-
-                        body: JSON.stringify({
-                            q: cleaned,
-
-                            limit:
-                                MAX_SUGGESTIONS,
-
-                            // Search directly against title field for instant, accurate prefix matches
-                            attributesToSearchOn: [
-                                "title"
-                            ],
-
-                            attributesToRetrieve: [
-                                "title",
-                                "content_type",
-                                "url"
-                            ]
-                        }),
-
                         signal:
                             suggestionController
                                 .signal
@@ -813,7 +770,6 @@
                 ? data.hits
                 : [];
 
-        // Exact match count from Meilisearch
         currentTotal =
             Number(
                 (data.totalHits !== undefined && data.totalHits !== null)
@@ -996,63 +952,11 @@
         searchController =
             new AbortController();
 
-        const currentPageNumber =
-            Math.floor(offset / PAGE_SIZE) + 1;
-
         try {
             const response =
                 await fetch(
-                    `${MEILI_HOST}/indexes/${MEILI_INDEX}/search`,
+                    `${BACKEND_API}?q=${encodeURIComponent(cleaned)}&limit=${PAGE_SIZE}`,
                     {
-                        method: "POST",
-
-                        headers: {
-                            "Content-Type":
-                                "application/json",
-
-                            "Authorization":
-                                `Bearer ${MEILI_SEARCH_KEY}`
-                        },
-
-                        body: JSON.stringify({
-                            q: cleaned,
-
-                            page:
-                                currentPageNumber,
-
-                            hitsPerPage:
-                                PAGE_SIZE,
-
-                            rankingScoreThreshold:
-                                RANKING_SCORE_THRESHOLD,
-
-                            hybrid: {
-                                semanticRatio:
-                                    SEMANTIC_RATIO,
-
-                                embedder:
-                                    "default"
-                            },
-
-                            attributesToRetrieve: [
-                                "id",
-                                "source_id",
-                                "source_table",
-                                "content_type",
-                                "slug",
-                                "title",
-                                "summary",
-                                "agency_name",
-                                "published_at",
-                                "url",
-                                "form_url",
-                                "topics"
-                            ],
-
-                            showRankingScore:
-                                true
-                        }),
-
                         signal:
                             searchController
                                 .signal
@@ -1061,7 +965,7 @@
 
             if (!response.ok) {
                 throw new Error(
-                    "Meilisearch search failed."
+                    "Backend search API failed."
                 );
             }
 
@@ -1098,7 +1002,7 @@
                     </div>
 
                     <div class="empty-text">
-                        Meilisearch could not
+                        Knowledge base service could not
                         process the search request.
                     </div>
 
@@ -1121,7 +1025,6 @@
                 debounceTimer
             );
 
-            // Fast 80ms debounce for instant typing feedback
             debounceTimer =
                 setTimeout(
                     () => {
@@ -1185,7 +1088,6 @@
         }
     );
 
-    // Close suggestions dropdown when clicking outside the search panel
     document.addEventListener(
         "click",
         event => {
