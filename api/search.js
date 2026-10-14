@@ -19,45 +19,77 @@ function getRecords() {
     return cachedRecords;
 }
 
-// 1. Fast-Path Autocomplete Suggestions (~2ms in-memory scan)
+// 1. Multi-Word Intelligent Autocomplete Suggestions (~2ms in-memory scan)
 function getSuggestions(query, limit = 5) {
     const records = getRecords();
-    const qLower = query.toLowerCase().trim();
+    const qTrimmed = (query || "").toLowerCase().trim();
+    if (!qTrimmed) return [];
+
+    const tokens = qTrimmed.split(/\s+/).filter(Boolean);
+    if (!tokens.length) return [];
+
+    const scored = [];
     const seen = new Set();
-    const suggestions = [];
 
-    // Priority 1: Title starts with query
     for (const r of records) {
         const title = (r.title || "").trim();
+        if (!title) continue;
         const titleLower = title.toLowerCase();
-        if (titleLower.startsWith(qLower) && !seen.has(titleLower)) {
-            seen.add(titleLower);
-            suggestions.push({
-                title: title,
-                content_type: r.content_type || "record",
-                url: r.url || null
-            });
-            if (suggestions.length >= limit) return suggestions;
-        }
-    }
+        if (seen.has(titleLower)) continue;
 
-    // Priority 2: Word inside title starts with query
-    for (const r of records) {
-        const title = (r.title || "").trim();
-        const titleLower = title.toLowerCase();
         const words = titleLower.split(/\s+/);
-        if (words.some(w => w.startsWith(qLower)) && !seen.has(titleLower)) {
+        let score = 0;
+
+        // 1. Full phrase exact prefix match (highest priority)
+        if (titleLower.startsWith(qTrimmed)) {
+            score += 120;
+        }
+        // 2. Full phrase substring match anywhere in title
+        else if (titleLower.includes(qTrimmed)) {
+            score += 70;
+        }
+
+        // 3. Multi-token smart matching across all typed words
+        let prefixMatches = 0;
+        let substringMatches = 0;
+        let allTokensMatched = true;
+
+        for (const t of tokens) {
+            const isWordPrefix = words.some(w => w.startsWith(t));
+            if (isWordPrefix) {
+                prefixMatches++;
+            } else if (titleLower.includes(t)) {
+                substringMatches++;
+            } else {
+                allTokensMatched = false;
+            }
+        }
+
+        if (allTokensMatched) {
+            // Every typed token matches a word prefix or substring
+            score += 50 + (prefixMatches * 15) + (substringMatches * 5);
+        } else if (tokens.length > 1 && (prefixMatches + substringMatches) >= (tokens.length - 1)) {
+            // Partial match for multi-word query (user currently typing the next word)
+            score += (prefixMatches * 12) + (substringMatches * 4);
+        }
+
+        if (score > 0) {
+            // Favor concise, clean titles for autocomplete suggestions
+            score += Math.max(0, 25 - words.length);
             seen.add(titleLower);
-            suggestions.push({
-                title: title,
-                content_type: r.content_type || "record",
-                url: r.url || null
+            scored.push({
+                score,
+                item: {
+                    title: title,
+                    content_type: r.content_type || "record",
+                    url: r.url || null
+                }
             });
-            if (suggestions.length >= limit) return suggestions;
         }
     }
 
-    return suggestions;
+    scored.sort((a, b) => b.score - a.score);
+    return scored.slice(0, limit).map(s => s.item);
 }
 
 // 2. High-Accuracy In-Memory Keyword Search Engine with True Pagination (~18ms)
@@ -76,11 +108,11 @@ function performKeywordSearch(query, limit = 20, offset = 0) {
 
         let score = 0;
 
-        // Exact phrase match bonus in title
+        // Exact phrase bonus in title
         if (title.includes(qLower)) {
             score += 50;
         }
-        // Prefix match bonus in title
+        // Prefix match in title
         if (title.startsWith(qLower)) {
             score += 25;
         }
@@ -100,7 +132,7 @@ function performKeywordSearch(query, limit = 20, offset = 0) {
             }
         }
 
-        // Multi-token completeness bonus
+        // All tokens present bonus for multi-word queries
         if (tokens.length > 1 && tokenMatches === tokens.length) {
             score += 20;
         }
@@ -139,7 +171,7 @@ async function performVectorSearch(query, limit = 20, offset = 0) {
         throw new Error("Missing vector search environment variables (GEMINI_API_KEY, PINECONE_API_KEY, or PINECONE_HOST).");
     }
 
-    // A. Generate 3072-dimensional embedding using Google Gemini (4-second safety timeout)
+    // A. Generate 3072-dimensional embedding using Google Gemini
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_API_KEY}`;
     const geminiRes = await fetch(geminiUrl, {
         method: "POST",
@@ -163,7 +195,7 @@ async function performVectorSearch(query, limit = 20, offset = 0) {
         throw new Error("Gemini returned empty embedding vector.");
     }
 
-    // B. Query Pinecone Serverless Database (Fetch enough matches to support requested pagination)
+    // B. Query Pinecone Serverless Database
     const topK = Math.min(200, Math.max(100, offset + limit));
     const pineconeUrl = `${PINECONE_HOST.replace(/\/$/, "")}/query`;
     const pineconeRes = await fetch(pineconeUrl, {
@@ -189,12 +221,11 @@ async function performVectorSearch(query, limit = 20, offset = 0) {
     const pineconeData = await pineconeRes.json();
     const matches = pineconeData.matches || [];
 
-    // Filter relevant matches above cosine threshold
     const threshold = 0.40;
     const filteredMatches = matches.filter(m => (m.score || 0) >= threshold);
 
     if (!filteredMatches.length) {
-        return null; // Triggers fallback to keyword search
+        return null;
     }
 
     const hits = filteredMatches.map(m => {
@@ -220,7 +251,6 @@ async function performVectorSearch(query, limit = 20, offset = 0) {
 
 // 4. Main Vercel Serverless Function Handler
 export default async function handler(req, res) {
-    // Enable Cross-Origin Resource Sharing (CORS)
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -236,7 +266,7 @@ export default async function handler(req, res) {
         return res.status(200).json({ query: cleaned, totalHits: 0, hits: [] });
     }
 
-    // Mode: Instant Autocomplete Suggestions (~2ms fast-path in memory)
+    // Mode: Instant Autocomplete Suggestions
     if (mode === "suggest") {
         const suggestions = getSuggestions(cleaned, 5);
         return res.status(200).json({
@@ -249,8 +279,7 @@ export default async function handler(req, res) {
     const parsedLimit = parseInt(limit || "20", 10);
     const parsedOffset = parseInt(offset || "0", 10);
 
-    // Mode: Search
-    // Step 1: Attempt Gemini 3,072-dim + Pinecone Vector Search
+    // Mode: Search (Vector with graceful Keyword Fallback)
     try {
         const vectorResult = await performVectorSearch(cleaned, parsedLimit, parsedOffset);
         if (vectorResult && vectorResult.hits && vectorResult.hits.length > 0) {
@@ -265,7 +294,6 @@ export default async function handler(req, res) {
         console.warn("Vector search unavailable, falling back to keyword search:", vectorError.message);
     }
 
-    // Step 2: Seamless Fallback to High-Accuracy In-Memory Keyword Search
     try {
         const keywordResult = performKeywordSearch(cleaned, parsedLimit, parsedOffset);
         return res.status(200).json({
@@ -279,4 +307,3 @@ export default async function handler(req, res) {
         return res.status(500).json({ error: "Search failed", details: keywordError.message });
     }
 }
-
