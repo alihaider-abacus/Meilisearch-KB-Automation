@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     db_user: str = ""
     db_password: str = ""
 
+    cdc_slot_name: str = "government_kb_slot"
+    cdc_plugin: str = "wal2json"
+
     # ------------------------------------------------------------------
     # Meilisearch
     # ------------------------------------------------------------------

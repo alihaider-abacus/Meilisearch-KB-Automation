@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Government of Bermuda </title>
+    <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+
+<div class="page">
+    <main class="container">
+
+        <section class="hero">
+            <div class="brand" aria-hidden="true">⚓</div>
+            <h1>Government of Bermuda</h1>
+            <p class="subtitle">
+                Search the Government Knowledge Base for official government information,
+                services, pages, articles and news.
+            </p>
+        </section>
+
+        <section class="search-panel" id="searchPanel">
+            <form class="search-form" id="searchForm">
+                <div class="search-icon" aria-hidden="true">🔎</div>
+                <input
+                    id="searchInput"
+                    class="search-input"
+                    type="search"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="Search the Government of Bermuda Services..."
+                    aria-label="Search the Government of Bermuda"
+                >
+                <button class="search-button" type="submit">Search</button>
+            </form>
+            <div id="suggestions" class="suggestions"></div>
+        </section>
+
+        <section id="resultsArea" class="results-area"></section>
+
+        <div id="pagination" class="pagination">
+            <button id="previousButton" class="page-button" type="button">Previous</button>
+            <span id="pageNumber" class="page-number"></span>
+            <button id="nextButton" class="page-button" type="button">Next</button>
+        </div>
+
+        <footer class="footer">
+            Government of Bermuda Knowledge Base
+        </footer>
+
+    </main>
+</div>
+
+<script src="./local.js"></script>
+</body>
+</html>

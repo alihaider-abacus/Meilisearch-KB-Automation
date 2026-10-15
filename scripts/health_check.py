@@ -69,3 +69,15 @@ def check_meilisearch(
                 search.close()
             except Exception:
                 pass
+
+def main() -> None:
+    print("=" * 60)
+    print("Knowledge Base Health Check")
+    print("=" * 60)
+    print("PostgreSQL:", check_database())
+    print("Meilisearch:", check_meilisearch())
+    print("=" * 60)
+
+
+if __name__ == "__main__":
+    main()

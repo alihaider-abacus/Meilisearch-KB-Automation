@@ -28,6 +28,7 @@ logs/
 # Local data
 data/*
 !data/.gitkeep
+!data/records.json
 
 # Meilisearch
 meilisearch_data/
