@@ -1,8 +1,40 @@
-// api/search.js - Unified Production Search Engine: Gemini + Pinecone Vector Search with In-Memory Keyword Fallback
+// api/search.js - Unified Production Search Engine: Meilisearch-Compatible Keyword + Typo Engine with Vector Fallback
 import fs from "fs";
 import path from "path";
 
 let cachedRecords = null;
+
+// Stop words to prevent conversational question noise
+const STOP_WORDS = new Set([
+    "a", "about", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "how", "i", "in", "is", "it", "my", "of", "on", "or", "that", "the",
+    "this", "to", "was", "what", "when", "where", "who", "will", "with", "do"
+]);
+
+// 1. Fast Levenshtein distance for Meilisearch-standard typo tolerance
+function levenshtein(a, b) {
+    if (a === b) return 0;
+    if (Math.abs(a.length - b.length) > 2) return 99;
+    const row = [];
+    for (let i = 0; i <= b.length; i++) row[i] = i;
+
+    for (let i = 1; i <= a.length; i++) {
+        let prev = i;
+        for (let j = 1; j <= b.length; j++) {
+            const val = a[i - 1] === b[j - 1] ? row[j - 1] : Math.min(row[j - 1] + 1, prev + 1, row[j] + 1);
+            row[j - 1] = prev;
+            prev = val;
+        }
+        row[b.length] = prev;
+    }
+    return row[b.length];
+}
+
+function maxAllowedTypos(tokenLen) {
+    if (tokenLen < 5) return 0;
+    if (tokenLen <= 8) return 1;
+    return 2;
+}
 
 // Load records into memory once
 function getRecords() {
@@ -19,13 +51,15 @@ function getRecords() {
     return cachedRecords;
 }
 
-// 1. Multi-Word Intelligent Autocomplete Suggestions (~2ms in-memory scan)
+// 2. Autocomplete Suggestions with Typo Tolerance (~2ms)
 function getSuggestions(query, limit = 5) {
     const records = getRecords();
-    const qTrimmed = (query || "").toLowerCase().trim();
-    if (!qTrimmed) return [];
+    const cleanQ = (query || "").toLowerCase().replace(/[^a-zA-Z0-9\s]/g, " ").trim();
+    if (!cleanQ) return [];
 
-    const tokens = qTrimmed.split(/\s+/).filter(Boolean);
+    const allTokens = cleanQ.split(/\s+/).filter(Boolean);
+    const sigTokens = allTokens.filter(t => !STOP_WORDS.has(t));
+    const tokens = sigTokens.length ? sigTokens : allTokens;
     if (!tokens.length) return [];
 
     const scored = [];
@@ -37,44 +71,33 @@ function getSuggestions(query, limit = 5) {
         const titleLower = title.toLowerCase();
         if (seen.has(titleLower)) continue;
 
-        const words = titleLower.split(/\s+/);
+        const words = titleLower.replace(/[^a-zA-Z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
         let score = 0;
 
-        // 1. Full phrase exact prefix match (highest priority)
-        if (titleLower.startsWith(qTrimmed)) {
+        if (titleLower.startsWith(cleanQ)) {
             score += 120;
-        }
-        // 2. Full phrase substring match anywhere in title
-        else if (titleLower.includes(qTrimmed)) {
+        } else if (titleLower.includes(cleanQ)) {
             score += 70;
         }
 
-        // 3. Multi-token smart matching across all typed words
-        let prefixMatches = 0;
-        let substringMatches = 0;
-        let allTokensMatched = true;
-
+        let tokenMatches = 0;
         for (const t of tokens) {
-            const isWordPrefix = words.some(w => w.startsWith(t));
-            if (isWordPrefix) {
-                prefixMatches++;
+            if (words.some(w => w.startsWith(t))) {
+                tokenMatches++;
+                score += 30;
             } else if (titleLower.includes(t)) {
-                substringMatches++;
+                tokenMatches++;
+                score += 15;
             } else {
-                allTokensMatched = false;
+                const mt = maxAllowedTypos(t.length);
+                if (mt > 0 && words.some(w => Math.abs(w.length - t.length) <= mt && levenshtein(t, w) <= mt)) {
+                    tokenMatches++;
+                    score += 20; // Typo match in suggestions
+                }
             }
         }
 
-        if (allTokensMatched) {
-            // Every typed token matches a word prefix or substring
-            score += 50 + (prefixMatches * 15) + (substringMatches * 5);
-        } else if (tokens.length > 1 && (prefixMatches + substringMatches) >= (tokens.length - 1)) {
-            // Partial match for multi-word query (user currently typing the next word)
-            score += (prefixMatches * 12) + (substringMatches * 4);
-        }
-
-        if (score > 0) {
-            // Favor concise, clean titles for autocomplete suggestions
+        if (tokenMatches > 0) {
             score += Math.max(0, 25 - words.length);
             seen.add(titleLower);
             scored.push({
@@ -92,12 +115,16 @@ function getSuggestions(query, limit = 5) {
     return scored.slice(0, limit).map(s => s.item);
 }
 
-// 2. High-Accuracy In-Memory Keyword Search Engine with True Pagination (~18ms)
-function performKeywordSearch(query, limit = 20, offset = 0) {
+// 3. Meilisearch-Compatible Search Engine with Typo Tolerance & 0.80+ Threshold (~18ms)
+function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.80) {
     const records = getRecords();
-    const qLower = query.toLowerCase().trim();
-    const tokens = qLower.split(/\s+/).filter(Boolean);
-    if (!tokens.length) return { totalMatches: 0, hits: [] };
+    const cleanQ = (query || "").toLowerCase().replace(/[^a-zA-Z0-9\s]/g, " ").trim();
+    const allTokens = cleanQ.split(/\s+/).filter(Boolean);
+    if (!allTokens.length) return { totalMatches: 0, hits: [] };
+
+    // Use intent tokens (strip conversational stop words like "how", "do", "i")
+    const sigTokens = allTokens.filter(t => !STOP_WORDS.has(t));
+    const tokens = sigTokens.length ? sigTokens : allTokens;
 
     const scored = [];
 
@@ -105,50 +132,71 @@ function performKeywordSearch(query, limit = 20, offset = 0) {
         const title = (r.title || "").toLowerCase();
         const agency = (r.agency_name || "").toLowerCase();
         const summary = (r.summary || "").toLowerCase();
+        const titleWords = title.replace(/[^a-zA-Z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
 
         let score = 0;
 
         // Exact phrase bonus in title
-        if (title.includes(qLower)) {
-            score += 50;
-        }
-        // Prefix match in title
-        if (title.startsWith(qLower)) {
+        if (cleanQ.length > 2 && title.includes(cleanQ)) {
+            score += 45;
+        } else if (cleanQ.length > 2 && title.startsWith(cleanQ)) {
             score += 25;
         }
 
-        // Token match scoring across title, agency, and summary
+        // Token match scoring across title, agency, summary + Typo Tolerance
         let tokenMatches = 0;
         for (const t of tokens) {
             if (title.includes(t)) {
+                score += 20;
+                tokenMatches++;
+            } else if (titleWords.some(w => w.startsWith(t))) {
                 score += 15;
                 tokenMatches++;
             } else if (agency.includes(t)) {
-                score += 8;
+                score += 10;
                 tokenMatches++;
             } else if (summary.includes(t)) {
-                score += 3;
+                score += 6;
                 tokenMatches++;
+            } else {
+                // Typo check (Levenshtein)
+                const mt = maxAllowedTypos(t.length);
+                if (mt > 0) {
+                    for (const w of titleWords) {
+                        if (Math.abs(w.length - t.length) <= mt && levenshtein(t, w) <= mt) {
+                            score += 18;
+                            tokenMatches++;
+                            break;
+                        }
+                    }
+                }
             }
         }
 
-        // All tokens present bonus for multi-word queries
-        if (tokens.length > 1 && tokenMatches === tokens.length) {
-            score += 20;
+        // Multi-word coherence bonus
+        if (tokens.length > 1 && tokenMatches >= tokens.length) {
+            score += 25;
+        } else if (tokens.length > 1 && tokenMatches >= (tokens.length - 1)) {
+            score += 10;
         }
 
-        if (score > 0) {
-            scored.push({
-                id: r.id,
-                title: r.title || "Untitled record",
-                summary: r.summary || "",
-                content: r.content || "",
-                url: r.url || null,
-                agency_name: r.agency_name || null,
-                content_type: r.content_type || "record",
-                slug: r.slug || "",
-                _rankingScore: Math.min(0.99, Number((0.50 + (score / 150)).toFixed(2)))
-            });
+        if (tokenMatches > 0) {
+            // Normalized to Meilisearch ranking score range (0.80 - 0.99)
+            const rankingScore = Math.min(0.99, Number((0.70 + (score / 150)).toFixed(2)));
+
+            if (rankingScore >= threshold) {
+                scored.push({
+                    id: r.id,
+                    title: r.title || "Untitled record",
+                    summary: r.summary || "",
+                    content: r.content || "",
+                    url: r.url || null,
+                    agency_name: r.agency_name || null,
+                    content_type: r.content_type || "record",
+                    slug: r.slug || "",
+                    _rankingScore: rankingScore
+                });
+            }
         }
     }
 
@@ -161,17 +209,16 @@ function performKeywordSearch(query, limit = 20, offset = 0) {
     return { totalMatches, hits: paginatedHits };
 }
 
-// 3. Vector Search Engine via Google Gemini 3,072-dim Embeddings + Pinecone Serverless
+// 4. Vector Search Engine (Gemini + Pinecone Serverless)
 async function performVectorSearch(query, limit = 20, offset = 0) {
     const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
     const PINECONE_API_KEY = process.env.PINECONE_API_KEY;
     const PINECONE_HOST = process.env.PINECONE_HOST;
 
     if (!GEMINI_API_KEY || !PINECONE_API_KEY || !PINECONE_HOST) {
-        throw new Error("Missing vector search environment variables (GEMINI_API_KEY, PINECONE_API_KEY, or PINECONE_HOST).");
+        throw new Error("Missing vector search configuration.");
     }
 
-    // A. Generate 3072-dimensional embedding using Google Gemini
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${GEMINI_API_KEY}`;
     const geminiRes = await fetch(geminiUrl, {
         method: "POST",
@@ -195,7 +242,6 @@ async function performVectorSearch(query, limit = 20, offset = 0) {
         throw new Error("Gemini returned empty embedding vector.");
     }
 
-    // B. Query Pinecone Serverless Database
     const topK = Math.min(200, Math.max(100, offset + limit));
     const pineconeUrl = `${PINECONE_HOST.replace(/\/$/, "")}/query`;
     const pineconeRes = await fetch(pineconeUrl, {
@@ -219,16 +265,11 @@ async function performVectorSearch(query, limit = 20, offset = 0) {
     }
 
     const pineconeData = await pineconeRes.json();
-    const matches = pineconeData.matches || [];
+    const matches = (pineconeData.matches || []).filter(m => (m.score || 0) >= 0.40);
 
-    const threshold = 0.40;
-    const filteredMatches = matches.filter(m => (m.score || 0) >= threshold);
+    if (!matches.length) return null;
 
-    if (!filteredMatches.length) {
-        return null;
-    }
-
-    const hits = filteredMatches.map(m => {
+    const hits = matches.map(m => {
         const meta = m.metadata || {};
         return {
             id: m.id,
@@ -243,21 +284,16 @@ async function performVectorSearch(query, limit = 20, offset = 0) {
         };
     });
 
-    const totalMatches = hits.length;
-    const paginatedHits = hits.slice(offset, offset + limit);
-
-    return { totalMatches, hits: paginatedHits };
+    return { totalMatches: hits.length, hits: hits.slice(offset, offset + limit) };
 }
 
-// 4. Main Vercel Serverless Function Handler
+// 5. Main Handler
 export default async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-    if (req.method === "OPTIONS") {
-        return res.status(200).end();
-    }
+    if (req.method === "OPTIONS") return res.status(200).end();
 
     const { q = "", limit = "20", offset = "0", mode = "search" } = req.query;
     const cleaned = (q || "").trim();
@@ -266,7 +302,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ query: cleaned, totalHits: 0, hits: [] });
     }
 
-    // Mode: Instant Autocomplete Suggestions
     if (mode === "suggest") {
         const suggestions = getSuggestions(cleaned, 5);
         return res.status(200).json({
@@ -279,7 +314,6 @@ export default async function handler(req, res) {
     const parsedLimit = parseInt(limit || "20", 10);
     const parsedOffset = parseInt(offset || "0", 10);
 
-    // Mode: Search (Vector with graceful Keyword Fallback)
     try {
         const vectorResult = await performVectorSearch(cleaned, parsedLimit, parsedOffset);
         if (vectorResult && vectorResult.hits && vectorResult.hits.length > 0) {
@@ -291,11 +325,11 @@ export default async function handler(req, res) {
             });
         }
     } catch (vectorError) {
-        console.warn("Vector search unavailable, falling back to keyword search:", vectorError.message);
+        // Fallback to unified keyword search
     }
 
     try {
-        const keywordResult = performKeywordSearch(cleaned, parsedLimit, parsedOffset);
+        const keywordResult = performKeywordSearch(cleaned, parsedLimit, parsedOffset, 0.80);
         return res.status(200).json({
             query: cleaned,
             totalHits: keywordResult.totalMatches,
@@ -303,7 +337,6 @@ export default async function handler(req, res) {
             engine: "keyword"
         });
     } catch (keywordError) {
-        console.error("Keyword search error:", keywordError);
         return res.status(500).json({ error: "Search failed", details: keywordError.message });
     }
 }
