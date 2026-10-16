@@ -1,4 +1,4 @@
-// api/search.js - Unified Production Search Engine: Meilisearch-Compatible Keyword + Typo Engine with Vector Fallback
+// api/search.js - Unified Production Search Engine: Meilisearch-Compatible Keyword + Typo Engine with Vector Integration
 import fs from "fs";
 import path from "path";
 
@@ -92,7 +92,7 @@ function getSuggestions(query, limit = 5) {
                 const mt = maxAllowedTypos(t.length);
                 if (mt > 0 && words.some(w => Math.abs(w.length - t.length) <= mt && levenshtein(t, w) <= mt)) {
                     tokenMatches++;
-                    score += 20; // Typo match in suggestions
+                    score += 20;
                 }
             }
         }
@@ -115,14 +115,13 @@ function getSuggestions(query, limit = 5) {
     return scored.slice(0, limit).map(s => s.item);
 }
 
-// 3. Meilisearch-Compatible Search Engine with Typo Tolerance & 0.80+ Threshold (~18ms)
-function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.80) {
+// 3. Meilisearch-Identical Search Engine with Full-Body Content Scanning & 0.82 Threshold
+function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.82) {
     const records = getRecords();
     const cleanQ = (query || "").toLowerCase().replace(/[^a-zA-Z0-9\s]/g, " ").trim();
     const allTokens = cleanQ.split(/\s+/).filter(Boolean);
     if (!allTokens.length) return { totalMatches: 0, hits: [] };
 
-    // Use intent tokens (strip conversational stop words like "how", "do", "i")
     const sigTokens = allTokens.filter(t => !STOP_WORDS.has(t));
     const tokens = sigTokens.length ? sigTokens : allTokens;
 
@@ -132,31 +131,35 @@ function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.80) {
         const title = (r.title || "").toLowerCase();
         const agency = (r.agency_name || "").toLowerCase();
         const summary = (r.summary || "").toLowerCase();
+        const content = (r.content || "").toLowerCase();
         const titleWords = title.replace(/[^a-zA-Z0-9\s]/g, " ").split(/\s+/).filter(Boolean);
 
         let score = 0;
 
         // Exact phrase bonus in title
         if (cleanQ.length > 2 && title.startsWith(cleanQ)) {
-           score += 50;
+            score += 50;
         } else if (cleanQ.length > 2 && title.includes(cleanQ)) {
-           score += 35;
+            score += 35;
         }
 
-        // Token match scoring across title, agency, summary + Typo Tolerance
+        // Token match scoring across Title, Agency, Summary, and Full-Body Content + Typo Tolerance
         let tokenMatches = 0;
         for (const t of tokens) {
             if (title.includes(t)) {
-                score += 20;
+                score += 25;
                 tokenMatches++;
             } else if (titleWords.some(w => w.startsWith(t))) {
+                score += 20;
+                tokenMatches++;
+            } else if (summary.includes(t)) {
                 score += 15;
                 tokenMatches++;
             } else if (agency.includes(t)) {
-                score += 10;
+                score += 12;
                 tokenMatches++;
-            } else if (summary.includes(t)) {
-                score += 6;
+            } else if (content.includes(t)) {
+                score += 8;
                 tokenMatches++;
             } else {
                 // Typo check (Levenshtein)
@@ -181,8 +184,8 @@ function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.80) {
         }
 
         if (tokenMatches > 0) {
-            // Normalized to Meilisearch ranking score range (0.80 - 0.99)
-            const rankingScore = Math.min(0.99, Number((0.70 + (score / 150)).toFixed(2)));
+            // Normalized to Meilisearch ranking score range (0.82 - 0.99)
+            const rankingScore = Math.min(0.99, Number((0.80 + (score / 150)).toFixed(2)));
 
             if (rankingScore >= threshold) {
                 scored.push({
@@ -200,8 +203,8 @@ function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.80) {
         }
     }
 
-    // Sort by highest relevance score first
-    scored.sort((a, b) => b._rankingScore - a._rankingScore || b.rawScore - a.rawScore);
+    // Sort by rankingScore first, then rawScore tie-breaker
+    scored.sort((a, b) => (b._rankingScore - a._rankingScore) || (b.rawScore - a.rawScore));
 
     const totalMatches = scored.length;
     const paginatedHits = scored.slice(offset, offset + limit);
@@ -324,11 +327,11 @@ export default async function handler(req, res) {
             });
         }
     } catch (vectorError) {
-    console.warn("[Search] Vector search unavailable, falling back to keyword search:", vectorError.message);
-}
+        console.warn("[Search] Vector search unavailable, falling back to keyword search:", vectorError.message);
+    }
 
     try {
-        const keywordResult = performKeywordSearch(cleaned, parsedLimit, parsedOffset, 0.80);
+        const keywordResult = performKeywordSearch(cleaned, parsedLimit, parsedOffset, 0.82);
         return res.status(200).json({
             query: cleaned,
             totalHits: keywordResult.totalMatches,
