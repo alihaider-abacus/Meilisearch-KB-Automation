@@ -69,64 +69,11 @@ class Settings(BaseSettings):
     )
 
     gemini_api_key: str = ""
-    # ------------------------------------------------------------------
-    # Vertex AI
-    # ------------------------------------------------------------------
 
-    vertex_ai_project: str = ""
-    vertex_ai_location: str = "us-central1"
-
-    search_embedding_task_type: str = "RETRIEVAL_QUERY"
-
-    # ------------------------------------------------------------------
-    # Search
-    # ------------------------------------------------------------------
-
-    # The application exposes only one search strategy:
-    #
-    #   70% semantic
-    #   30% keyword
-    #
-    # Meilisearch's semanticRatio is the semantic portion.
-
-    search_hybrid_semantic_ratio: float = Field(
-        default=0.70,
-        ge=0.0,
-        le=1.0,
-    )
-
-    # UI/API page size.
-    search_default_limit: int = Field(
-        default=20,
-        ge=1,
-        le=20,
-    )
-
-    search_max_limit: int = Field(
-        default=20,
-        ge=1,
-        le=20,
-    )
-
-    # Minimum semantic relevance accepted for a result.
-    #
-    # This prevents completely unrelated queries from returning
-    # arbitrary semantic matches.
-
-    search_min_semantic_score: float = Field(
-        default=0.20,
-        ge=0.0,
-        le=1.0,
-    )
-
-    # Maximum number of autocomplete suggestions.
-
-    search_suggestion_limit: int = Field(
-        default=5,
-        ge=1,
-        le=5,
-    )
-
+    pinecone_api_key: str = ""
+    pinecone_index_name: str = "bermuda-kb"
+    pinecone_host: str = ""
+    
     # ------------------------------------------------------------------
     # Ingestion
     # ------------------------------------------------------------------

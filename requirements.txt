@@ -1,31 +1,19 @@
 # Configuration
-
 python-dotenv
 pydantic
 pydantic-settings
 
 # Database
-
 psycopg[binary]
 psycopg2-binary
-SQLAlchemy
 
-# Data processing and validation
-
-pandas
-numpy
+# HTML Parsing
 beautifulsoup4
 
 # Search
-
 meilisearch
 
-# Gemini
-
-google-genai
-
-# Testing
-
+# Testing & HTTP
 pytest
 pytest-asyncio
 httpx

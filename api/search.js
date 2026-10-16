@@ -137,10 +137,10 @@ function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.80) {
         let score = 0;
 
         // Exact phrase bonus in title
-        if (cleanQ.length > 2 && title.includes(cleanQ)) {
-            score += 45;
-        } else if (cleanQ.length > 2 && title.startsWith(cleanQ)) {
-            score += 25;
+        if (cleanQ.length > 2 && title.startsWith(cleanQ)) {
+           score += 50;
+        } else if (cleanQ.length > 2 && title.includes(cleanQ)) {
+           score += 35;
         }
 
         // Token match scoring across title, agency, summary + Typo Tolerance
@@ -189,19 +189,19 @@ function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.80) {
                     id: r.id,
                     title: r.title || "Untitled record",
                     summary: r.summary || "",
-                    content: r.content || "",
                     url: r.url || null,
                     agency_name: r.agency_name || null,
                     content_type: r.content_type || "record",
                     slug: r.slug || "",
-                    _rankingScore: rankingScore
+                    _rankingScore: rankingScore,
+                    rawScore: score
                 });
             }
         }
     }
 
     // Sort by highest relevance score first
-    scored.sort((a, b) => b._rankingScore - a._rankingScore);
+    scored.sort((a, b) => b._rankingScore - a._rankingScore || b.rawScore - a.rawScore);
 
     const totalMatches = scored.length;
     const paginatedHits = scored.slice(offset, offset + limit);
@@ -242,7 +242,7 @@ async function performVectorSearch(query, limit = 20, offset = 0) {
         throw new Error("Gemini returned empty embedding vector.");
     }
 
-    const topK = Math.min(200, Math.max(100, offset + limit));
+    const topK = Math.min(1000, Math.max(100, offset + limit + 20));
     const pineconeUrl = `${PINECONE_HOST.replace(/\/$/, "")}/query`;
     const pineconeRes = await fetch(pineconeUrl, {
         method: "POST",
@@ -275,7 +275,6 @@ async function performVectorSearch(query, limit = 20, offset = 0) {
             id: m.id,
             title: meta.title || "Untitled record",
             summary: meta.summary || "",
-            content: meta.content || "",
             url: meta.url || null,
             agency_name: meta.agency_name || null,
             content_type: meta.content_type || "record",
@@ -325,8 +324,8 @@ export default async function handler(req, res) {
             });
         }
     } catch (vectorError) {
-        // Fallback to unified keyword search
-    }
+    console.warn("[Search] Vector search unavailable, falling back to keyword search:", vectorError.message);
+}
 
     try {
         const keywordResult = performKeywordSearch(cleaned, parsedLimit, parsedOffset, 0.80);

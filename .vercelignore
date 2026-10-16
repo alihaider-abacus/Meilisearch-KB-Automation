@@ -1,0 +1,5 @@
+data/
+docker/
+config/
+ingestion/
+scripts/
