@@ -1,4 +1,4 @@
-// api/search.js - Unified Production Search Engine: Meilisearch-Compatible Keyword + Typo Engine with Vector Integration
+// api/search.js - Unified Production Search Engine: Meilisearch-Compatible Engine with Vector Integration
 import fs from "fs";
 import path from "path";
 
@@ -115,7 +115,7 @@ function getSuggestions(query, limit = 5) {
     return scored.slice(0, limit).map(s => s.item);
 }
 
-// 3. Meilisearch-Identical Search Engine with Full-Body Content Scanning & 0.82 Threshold
+// 3. Meilisearch-Compatible Keyword Engine (Multi-Word Matching + Full Content Scanning + 0.82 Threshold)
 function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.82) {
     const records = getRecords();
     const cleanQ = (query || "").toLowerCase().replace(/[^a-zA-Z0-9\s]/g, " ").trim();
@@ -176,11 +176,13 @@ function performKeywordSearch(query, limit = 20, offset = 0, threshold = 0.82) {
             }
         }
 
-        // Multi-word coherence bonus
+        // Meilisearch Standard: For multi-word queries, ALL words must match
+        if (tokens.length > 1 && tokenMatches < tokens.length) {
+            continue; // Discard records that only match 1 word out of a multi-word search
+        }
+
         if (tokens.length > 1 && tokenMatches >= tokens.length) {
             score += 25;
-        } else if (tokens.length > 1 && tokenMatches >= (tokens.length - 1)) {
-            score += 10;
         }
 
         if (tokenMatches > 0) {
