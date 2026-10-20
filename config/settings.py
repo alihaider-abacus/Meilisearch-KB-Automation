@@ -5,15 +5,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Application configuration."""
+    """Application configuration and environment settings."""
 
     # ------------------------------------------------------------------
-    # Application
+    # Application & Project Metadata
     # ------------------------------------------------------------------
 
     app_name: str = "Government of Bermuda"
     app_env: str = "development"
     log_level: str = "INFO"
+
+    project_id: str = "prj-gob-ss-oss-portal-d"
+    instance_name: str = "chatbot-gob-instance-dev"
 
     # ------------------------------------------------------------------
     # PostgreSQL
@@ -40,14 +43,13 @@ class Settings(BaseSettings):
 
     meili_host: str = "http://localhost:7700"
     meili_master_key: str = ""
+    meili_search_key: str = ""
     meili_index_name: str = "government_content"
 
     meili_timeout_seconds: float = Field(
-    default=30.0,
-    gt=0,
-)
-
-
+        default=30.0,
+        gt=0,
+    )
 
     # ------------------------------------------------------------------
     # Knowledge Base
@@ -64,8 +66,9 @@ class Settings(BaseSettings):
     embedding_model: str = "gemini-embedding-001"
 
     embedding_dimensions: int = Field(
-        default=3072,
+        default=1024,
         ge=1,
+        description="Target vector dimension. Switched to 1024D for autonomous Meilisearch vectorization.",
     )
 
     gemini_api_key: str = ""
@@ -73,7 +76,7 @@ class Settings(BaseSettings):
     pinecone_api_key: str = ""
     pinecone_index_name: str = "bermuda-kb"
     pinecone_host: str = ""
-    
+
     # ------------------------------------------------------------------
     # Ingestion
     # ------------------------------------------------------------------
@@ -104,7 +107,6 @@ class Settings(BaseSettings):
     @property
     def excluded_kb_tables(self) -> set[str]:
         """Return normalized excluded table names."""
-
         return {
             table.strip()
             for table in self.kb_excluded_tables.split(",")

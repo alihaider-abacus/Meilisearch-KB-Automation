@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-import math
+import sys
+from pathlib import Path
+
+# Ensure project root is in sys.path
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from dataclasses import dataclass
 from typing import Any
-
-from config.settings import settings
 
 
 @dataclass(frozen=True)
@@ -22,95 +27,24 @@ def validate_document(
 
     errors: list[str] = []
 
-    # --------------------------------------------------------------
-    # Identity
-    # --------------------------------------------------------------
-
+    # 1. Identity
     document_id = document.get("id")
-
     if not isinstance(document_id, str) or not document_id.strip():
         errors.append("Missing document id")
 
-    # --------------------------------------------------------------
-    # Searchable content
-    # --------------------------------------------------------------
-
+    # 2. Searchable content
     title = document.get("title")
-
     if not isinstance(title, str) or not title.strip():
         errors.append("Missing title")
 
     search_text = document.get("search_text")
-
     if not isinstance(search_text, str) or not search_text.strip():
         errors.append("Missing search_text")
 
-    # --------------------------------------------------------------
-    # Embedding
-    # --------------------------------------------------------------
-
-    embedding_container = document.get(
-        "_vectors"
-    )
-
-    if not isinstance(
-        embedding_container,
-        dict,
-    ):
-        errors.append(
-            "Missing _vectors object"
-        )
-
-    else:
-        embedding = embedding_container.get(
-            "default"
-        )
-
-        if not isinstance(
-            embedding,
-            list,
-        ):
-            errors.append(
-                "Missing default embedding"
-            )
-
-        else:
-            if len(embedding) != settings.embedding_dimensions:
-                errors.append(
-                    "Invalid embedding dimensions: "
-                    f"expected "
-                    f"{settings.embedding_dimensions}, "
-                    f"got {len(embedding)}"
-                )
-
-            for index, value in enumerate(embedding):
-                if not isinstance(
-                    value,
-                    (int, float),
-                ):
-                    errors.append(
-                        "Embedding contains "
-                        f"a non-numeric value at index {index}"
-                    )
-                    break
-
-                if not math.isfinite(float(value)):
-                    errors.append(
-                        "Embedding contains "
-                        f"a non-finite value at index {index}"
-                    )
-                    break
-
-    # --------------------------------------------------------------
-    # Basic collection fields
-    # --------------------------------------------------------------
-
+    # 3. Topics collection
     topics = document.get("topics")
-
     if not isinstance(topics, list):
-        errors.append(
-            "topics must be a list"
-        )
+        errors.append("topics must be a list")
 
     return ValidationResult(
         valid=not errors,
@@ -126,10 +60,7 @@ def validate_documents(
     failures: list[str] = []
 
     for document in documents:
-        result = validate_document(
-            document
-        )
-
+        result = validate_document(document)
         if not result.valid:
             failures.append(
                 f"{document.get('id', '<unknown>')}: "
@@ -137,18 +68,7 @@ def validate_documents(
             )
 
     if failures:
-        message = "\n".join(
-            failures[:20]
-        )
-
+        message = "\n".join(failures[:20])
         if len(failures) > 20:
-            message += (
-                "\n..."
-                f"and {len(failures) - 20} "
-                "more failures."
-            )
-
-        raise ValueError(
-            "Document validation failed:\n"
-            + message
-        )
+            message += f"\n...and {len(failures) - 20} more failures."
+        raise ValueError("Document validation failed:\n" + message)

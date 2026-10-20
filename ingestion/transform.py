@@ -129,90 +129,41 @@ def transform_record(
             f"Unsupported source table: {source_table!r}"
         )
 
-    title = clean_text(
-        row.get("title")
-    )
+    title = clean_text(row.get("title"))
+    agency_name = clean_text(row.get("agency_name"))
+    topics = normalize_topics(row.get("topics"))
 
-    agency_name = clean_text(
-        row.get("agency_name")
-    )
-
-    topics = normalize_topics(
-        row.get("topics")
-    )
-
-    if source_table in {
-        "articles_kb",
-        "news_kb",
-    }:
-        summary = clean_text(
-            row.get("summary")
-        )
-
-        content = html_to_text(
-            row.get("body_html")
-        )
-
+    if source_table in {"articles_kb", "news_kb"}:
+        summary = clean_text(row.get("summary"))
+        content = html_to_text(row.get("body_html"))
     elif source_table == "pages_kb":
         summary = ""
-
-        content = clean_text(
-            row.get("content")
-        )
-
+        content = clean_text(row.get("content"))
     else:
-        summary = clean_text(
-            row.get("description")
-        )
+        summary = clean_text(row.get("description"))
+        content = html_to_text(row.get("body_html"))
 
-        content = html_to_text(
-            row.get("body_html")
-        )
+    record_id = str(row["id"])
 
-    record_id = str(
-        row["id"]
-    )
-
+    # Document ready for Meilisearch autonomous 1024D vectorization
     document = {
-        # Globally unique across the unified index.
         "id": f"{source_table}:{record_id}",
-
-        # Original source identifier remains available.
         "source_id": record_id,
-
         "source_table": source_table,
-
-        "content_type": source_table.removesuffix(
-            "_kb"
-        ),
-
-        "slug": clean_text(
-            row.get("slug")
-        ) or None,
-
+        "content_type": source_table.removesuffix("_kb"),
+        "slug": clean_text(row.get("slug")) or None,
         "title": title,
-
         "summary": summary,
-
         "content": content,
-
-        "agency_name": (
-            agency_name
-            or None
-        ),
-
+        "agency_name": agency_name or None,
         "published_at": (
             row["published_at"].isoformat()
             if row.get("published_at")
             else None
         ),
-
         "url": row.get("url"),
-
         "form_url": row.get("form_url"),
-
         "topics": topics,
-
         "search_text": build_search_text(
             title=title,
             summary=summary,
@@ -220,12 +171,6 @@ def transform_record(
             agency_name=agency_name,
             topics=topics,
         ),
-
-        "_vectors": {
-            "default": row.get(
-                "embedding"
-            ),
-        },
     }
 
     return document

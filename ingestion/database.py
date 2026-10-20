@@ -201,16 +201,12 @@ class Database:
     def _normalize_row(
         row: dict[str, Any],
     ) -> dict[str, Any]:
-        """Normalize PostgreSQL-specific values."""
+        """Normalize PostgreSQL-specific values and silently exclude legacy embeddings."""
 
         normalized = dict(row)
 
-        embedding = normalized.get("embedding")
-
-        if embedding is not None:
-            normalized["embedding"] = Database._parse_embedding(
-                embedding
-            )
+        # Silently exclude legacy database embeddings without terminal logs
+        normalized.pop("embedding", None)
 
         topics = normalized.get("topics")
 
